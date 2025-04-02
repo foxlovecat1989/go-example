@@ -23,7 +23,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"math/rand"
 	"sync"
@@ -32,28 +31,28 @@ import (
 
 // variables
 const (
-	seatCapacity = 2
+	seatCapacity = 10
+	numBarber    = 4
 )
 
 func main() {
-	// seed our random number generator
-	rand.NewSource(time.Now().UnixNano())
-	// print welcome message
 	fmt.Println("sleeping barber problem...")
 
-	// Create context with cancel for shop closing
-	ctx, cancel := context.WithCancel(context.Background())
+	// seed our random number generator
+	rand.NewSource(time.Now().UnixNano())
 
+	// init
 	wg := &sync.WaitGroup{}
-	// create the barbershop
-	barbershop := NewBarbershop(seatCapacity, wg)
-	// add barbers
-	barbershop.addBarber(1, "ED")
-	barbershop.addBarber(2, "ED2")
+	closeChan := make(chan struct{})
 
-	// Start the barbershop with context
-	wg.Add(1)
-	go barbershop.Run(ctx)
+	// create the barbershop
+	barbershop := NewBarbershop(seatCapacity, wg, closeChan)
+
+	// add barbers
+	for i := 0; i < numBarber; i++ {
+		barbershop.addBarber(i)
+	}
+	barbershop.addBarber(1)
 
 	// add clients
 	wg.Add(1)
@@ -62,30 +61,35 @@ func main() {
 
 		var i int
 		for {
-			time.Sleep(time.Duration(rand.Intn(10)) * 100 * time.Millisecond)
+			time.Sleep(time.Duration(rand.Intn(10)*50/numBarber) * time.Millisecond)
+
 			i++
 			client := &Client{ID: i}
-
 			select {
-			case barbershop.clientChan <- client:
-				fmt.Printf("client %d entered waiting room\n", i)
-			case <-ctx.Done():
+			case <-closeChan:
+				fmt.Printf("close the client channel...\n")
 				barbershop.close()
-				fmt.Printf("shop is closing\n")
 				return
+			case barbershop.clientsChan <- client:
+				fmt.Printf("client%d enter the room\n", i)
 			default:
-				fmt.Printf("client %d is leaving (waiting room full)...\n", i)
+				fmt.Printf("client%d leave the room(the room full)\n", i)
 			}
 		}
 	}()
 
+	// start barbershop
+	wg.Add(1)
+	go barbershop.Run()
+
+	// close shop
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
 		<-time.After(10 * time.Second)
-		fmt.Printf("cancel the process\n")
-		cancel()
+		fmt.Printf("closing the shop...\n")
+		closeChan <- struct{}{}
 	}()
 
 	wg.Wait()

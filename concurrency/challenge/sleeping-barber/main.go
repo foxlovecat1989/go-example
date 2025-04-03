@@ -1,7 +1,7 @@
 // This is a simple demonstration of how to solve the Sleeping Barber dilemma, a classic computer science problem
 // which illustrates the complexities that arise when there are multiple operating system processes. Here, we have
 // a finite number of barbers, a finite number of seats in a waiting room, a fixed length of time the barbershop is
-// open, and clients arriving at (roughly) regular intervals. When a sleeping-barber has nothing to do, he or she checks the
+// openDuration, and clients arriving at (roughly) regular intervals. When a sleeping-barber has nothing to do, he or she checks the
 // waiting room for new clients, and if one or more is there, a haircut takes place. Otherwise, the sleeping-barber goes to
 // sleep until a new client arrives. So the rules are as follows:
 //
@@ -20,6 +20,7 @@
 //
 // The point of this problem, and its solution, was to make it clear that in a lot of cases, the use of
 // semaphores (mutexes) is not needed.
+
 package main
 
 import (
@@ -29,69 +30,55 @@ import (
 	"time"
 )
 
-// variables
 const (
-	seatCapacity = 10
-	numBarber    = 4
+	seatCapacity = 2
+	openDuration = 5 * time.Second
+	numOfBarber  = 1
 )
 
 func main() {
-	fmt.Println("sleeping barber problem...")
-
-	// seed our random number generator
-	rand.NewSource(time.Now().UnixNano())
-
+	fmt.Printf("start sleeping barbers problem\n")
 	// init
-	wg := &sync.WaitGroup{}
+	rand.NewSource(time.Now().UnixNano())
+	clientsChan := make(chan *Client, seatCapacity)
 	closeChan := make(chan struct{})
-
-	// create the barbershop
-	barbershop := NewBarbershop(seatCapacity, wg, closeChan)
-
-	// add barbers
-	for i := 0; i < numBarber; i++ {
-		barbershop.addBarber(i)
-	}
-	barbershop.addBarber(1)
-
-	// add clients
+	wg := &sync.WaitGroup{}
+	shop := NewBarberShop(numOfBarber, clientsChan, wg)
+	// producer
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
-		var i int
+		i := 0
 		for {
-			time.Sleep(time.Duration(rand.Intn(10)*50/numBarber) * time.Millisecond)
-
 			i++
-			client := &Client{ID: i}
+			// clients arriving at (roughly) regular intervals
+			time.Sleep(time.Duration(rand.Intn(10)*50/numOfBarber) * time.Millisecond)
 			select {
+			case clientsChan <- &Client{id: i}:
+				fmt.Printf("client%d is enter to the shop\n", i)
 			case <-closeChan:
-				fmt.Printf("close the client channel...\n")
-				barbershop.close()
+				shop.close()
 				return
-			case barbershop.clientsChan <- client:
-				fmt.Printf("client%d enter the room\n", i)
 			default:
-				fmt.Printf("client%d leave the room(the room full)\n", i)
+				fmt.Printf("client%d is leaveing, no room available\n", i)
 			}
 		}
 	}()
 
-	// start barbershop
+	// consumer
 	wg.Add(1)
-	go barbershop.Run()
+	go shop.Run()
 
-	// close shop
+	// close
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
-		<-time.After(10 * time.Second)
-		fmt.Printf("closing the shop...\n")
+		<-time.After(openDuration)
 		closeChan <- struct{}{}
 	}()
 
 	wg.Wait()
-	fmt.Printf("main process is exiting...\n")
+	fmt.Printf("the main process exit...")
 }

@@ -31,54 +31,51 @@ import (
 )
 
 const (
-	seatCapacity = 2
-	openDuration = 5 * time.Second
-	numOfBarber  = 1
+	seatCapacity = 10
+	numOfBarbers = 3
+	openDuration = 10 * time.Second
 )
 
 func main() {
-	fmt.Printf("start sleeping barbers problem\n")
 	// init
 	rand.NewSource(time.Now().UnixNano())
-	clientsChan := make(chan *Client, seatCapacity)
-	closeChan := make(chan struct{})
 	wg := &sync.WaitGroup{}
-	shop := NewBarberShop(numOfBarber, clientsChan, wg)
+	shop := NewBarberShop(seatCapacity, numOfBarbers, wg)
+	doneChan := make(chan struct{})
 	// producer
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
-		i := 0
+		var i int
 		for {
+			time.Sleep(time.Duration(rand.Intn(10)*10) * time.Millisecond)
+
 			i++
-			// clients arriving at (roughly) regular intervals
-			time.Sleep(time.Duration(rand.Intn(10)*50/numOfBarber) * time.Millisecond)
+			client := &Client{id: i}
+
 			select {
-			case clientsChan <- &Client{id: i}:
-				fmt.Printf("client%d is enter to the shop\n", i)
-			case <-closeChan:
+			case shop.clientsBufferChan <- client:
+				fmt.Printf("client%d is entering to the shop\n", i)
+			case <-doneChan:
 				shop.close()
 				return
 			default:
-				fmt.Printf("client%d is leaveing, no room available\n", i)
+				fmt.Printf("client%d is leaving, no more availabe capacity...\n", i)
 			}
 		}
 	}()
-
 	// consumer
 	wg.Add(1)
-	go shop.Run()
+	go shop.run()
 
 	// close
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-
 		<-time.After(openDuration)
-		closeChan <- struct{}{}
+		doneChan <- struct{}{}
 	}()
 
 	wg.Wait()
-	fmt.Printf("the main process exit...")
 }

@@ -3,47 +3,34 @@ package main
 import (
 	"fmt"
 	"sync"
-	"time"
 )
 
 type BarberShop struct {
-	// a finite number of barbers
-	barbers []*Barber
-	// a finite number of seats
-	clientsChan chan *Client
-	// a fixed length of time the barbershop is open
-	openDuration time.Duration
-	wg           *sync.WaitGroup
+	clientsBufferChan chan *Client
+	barbers           []*Barber
+	wg                *sync.WaitGroup
 }
 
 func NewBarberShop(
+	seatCapacity int,
 	numOfBarbers int,
-	clientsChan chan *Client,
 	wg *sync.WaitGroup,
 ) *BarberShop {
 	var barbers []*Barber
 	for i := 0; i < numOfBarbers; i++ {
-		barbers = append(barbers, &Barber{id: i, isSleep: false})
+		barbers = append(barbers, &Barber{
+			id: i,
+		})
 	}
 
 	return &BarberShop{
-		barbers:      barbers,
-		clientsChan:  clientsChan,
-		openDuration: openDuration,
-		wg:           wg,
+		clientsBufferChan: make(chan *Client, seatCapacity),
+		barbers:           barbers,
+		wg:                wg,
 	}
 }
 
-func (bs *BarberShop) close() {
-	close(bs.clientsChan)
-	fmt.Printf("shop is closing...\n")
-}
-
-func (bs *BarberShop) addBarber(b *Barber) {
-	bs.barbers = append(bs.barbers, b)
-}
-
-func (bs *BarberShop) Run() {
+func (bs *BarberShop) run() {
 	defer bs.wg.Done()
 
 	bsWg := &sync.WaitGroup{}
@@ -54,7 +41,7 @@ func (bs *BarberShop) Run() {
 
 			for {
 				select {
-				case c, ok := <-bs.clientsChan:
+				case c, ok := <-bs.clientsBufferChan:
 					if ok {
 						if barber.isSleep {
 							barber.wakeup(c)
@@ -62,13 +49,12 @@ func (bs *BarberShop) Run() {
 
 						barber.cutHair(c)
 					} else {
-						// the shop is closed, no more clients will come
-						fmt.Printf("\tbarber%d has done today's work and left\n", barber.id)
+						// the shop is closed
+						fmt.Printf("\tbarber%d has done the today's work and left\n", barber.id)
 						return
 					}
 				default:
 					if !barber.isSleep {
-						fmt.Printf("\tbarber%d is going to sleep\n", barber.id)
 						barber.sleep()
 					}
 				}
@@ -77,5 +63,10 @@ func (bs *BarberShop) Run() {
 	}
 
 	bsWg.Wait()
-	fmt.Printf("all of barber left...\n")
+	fmt.Printf("all of barbers has left...\n")
+}
+
+func (bs *BarberShop) close() {
+	close(bs.clientsBufferChan)
+	fmt.Printf("the shop is closed...\n")
 }
